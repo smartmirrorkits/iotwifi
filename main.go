@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/bhoriuchi/go-bunyan/bunyan"
-	"github.com/cjimti/iotwifi/iotwifi"
+	"github.com/smk69/iotwifi/iotwifi"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
@@ -156,6 +156,61 @@ func main() {
 		w.Write(ret)
 	}
 
+	// scan for wifi networks
+	configuredNetworksHandler := func(w http.ResponseWriter, r *http.Request) {
+		blog.Info("Got List Configured Networks")
+		configuredNetworks, err := wpacfg.ConfiguredNetworks()
+		if err != nil {
+			retError(w, err)
+			return
+		}
+
+		apiReturn := &ApiReturn{
+			Status:  "OK",
+			Message: "ConfiguredNetworks",
+			Payload: configuredNetworks,
+		}
+
+		ret, err := json.Marshal(apiReturn)
+		if err != nil {
+			retError(w, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(ret)
+	}
+
+	forgetNetworksHandler := func(w http.ResponseWriter, r *http.Request) {
+		blog.Info("Got Forget Network")
+
+		vars := mux.Vars(r)
+		id := vars["id"]
+
+		blog.Info("Forget Network Handler Got: networkIndex:|%s|", id)
+
+		_, err := wpacfg.RemoveNetwork(id)
+		if err != nil {
+			retError(w, err)
+			return
+		}
+
+		apiReturn := &ApiReturn{
+			Status:  "OK",
+			Message: "ConfiguredNetworks",
+			Payload: nil,
+		}
+
+		ret, err := json.Marshal(apiReturn)
+		if err != nil {
+			retError(w, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(ret)
+	}
+
 	// kill the application
 	killHandler := func(w http.ResponseWriter, r *http.Request) {
 		messages <- iotwifi.CmdMessage{Id: "kill"}
@@ -195,6 +250,8 @@ func main() {
 	r.HandleFunc("/status", statusHandler)
 	r.HandleFunc("/connect", connectHandler).Methods("POST")
 	r.HandleFunc("/scan", scanHandler)
+	r.HandleFunc("/configuredNetworks", configuredNetworksHandler)
+	r.HandleFunc("/forget/{id:[0-9]+}", forgetNetworksHandler)
 	r.HandleFunc("/kill", killHandler)
 	http.Handle("/", r)
 

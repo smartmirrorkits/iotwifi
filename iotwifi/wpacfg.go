@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/bhoriuchi/go-bunyan/bunyan"
 )
@@ -125,16 +126,6 @@ rsn_pairwise=CCMP`
 	}
 }
 
-// ConfiguredNetworks returns a list of configured wifi networks.
-func (wpa *WpaCfg) ConfiguredNetworks() string {
-	netOut, err := exec.Command("wpa_cli", "-i", "wlan0", "scan").Output()
-	if err != nil {
-		wpa.Log.Fatal(err)
-	}
-
-	return string(netOut)
-}
-
 // ConnectNetwork connects to a wifi network
 func (wpa *WpaCfg) ConnectNetwork(creds WpaCredentials) (WpaConnection, error) {
 	connection := WpaConnection{}
@@ -247,6 +238,58 @@ func cfgMapper(data []byte) map[string]string {
 	}
 
 	return cfgMap
+}
+
+// ConfiguredNetworks returns a list of configured wifi networks.
+func (wpa *WpaCfg) ConfiguredNetworks() (map[string]WpaNetwork, error) {
+	networkListOut, err := exec.Command("wpa_cli", "-i", "wlan0", "list_networks").Output()
+	if err != nil {
+		wpa.Log.Fatal(err)
+	}
+
+	configuredWpaNetworks := make(map[string]WpaNetwork, 0)
+	networkListOutArr := strings.Split(string(networkListOut), "\n")
+	for _, networkRecord := range networkListOutArr[1:] {
+		// network id / ssid / bssid / flags
+		// "network id / ssid / bssid / flags\n0\tAloha\tany\t[CURRENT]\n"
+		fields := strings.Split(networkRecord, "\t")
+		if len(fields) > 3 {
+			id := fields[0]
+			configuredWpaNetworks[id] = WpaNetwork{
+				Ssid:   fields[1],
+				Bssid: 	fields[2],
+				Flags:  fields[3],
+			}
+		}
+	}
+
+	return configuredWpaNetworks, nil
+}
+
+func (wpa *WpaCfg) RemoveNetwork(networkId string) (string, error) {
+	removeNetworkOut, err := exec.Command("wpa_cli", "-i", "wlan0", "remove_network", networkId).Output()
+	if err != nil {
+		wpa.Log.Fatal(err)
+	}
+
+	// will be either OK or FAIL
+	removeNetworkClean := strings.TrimSpace(string(removeNetworkOut))
+	err = nil
+	if removeNetworkClean == "OK" {
+		// save the config
+		saveOut, err := exec.Command("wpa_cli", "-i", "wlan0", "save_config").Output()
+		if err != nil {
+			wpa.Log.Fatal(err.Error())
+			return "", err
+		}
+
+		saveStatus := strings.TrimSpace(string(saveOut))
+		wpa.Log.Info("WPA save got: %s", saveStatus)
+	} else {
+		err = errors.New(removeNetworkClean)
+	}
+	
+	return removeNetworkClean, err
 }
 
 // ScanNetworks returns a map of WpaNetwork data structures.
