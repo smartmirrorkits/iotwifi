@@ -13,6 +13,9 @@ FROM arm32v6/alpine
 RUN apk update
 RUN apk add bridge hostapd wireless-tools wpa_supplicant dnsmasq iw
 
+# added to allow execution of debug commands
+RUN apk add bash
+
 RUN mkdir -p /etc/wpa_supplicant/
 COPY ./dev/configs/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant.conf
 
