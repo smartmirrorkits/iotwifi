@@ -205,6 +205,16 @@ func (wpa *WpaCfg) ConnectNetwork(creds WpaCredentials) (WpaConnection, error) {
 	}
 
 	// if password was wrong, we should remove the network so it doesnt get inadvertently added next time we save_config
+	// and so it isnt included in configured networks
+	// Remove the network
+	removeNetworkOut, err := exec.Command("wpa_cli", "-i", "wlan0", "remove_network", net).Output()
+	if err != nil {
+		wpa.Log.Fatal(err)
+	}
+
+	// will be either OK or FAIL
+	removeNetworkClean := strings.TrimSpace(string(removeNetworkOut))
+	wpa.Log.Info("WPA remove_network got: %s", removeNetworkClean)
 
 	connection.State = "FAIL"
 	connection.Message = "Unable to connection to " + creds.Ssid
