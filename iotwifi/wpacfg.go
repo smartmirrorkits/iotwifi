@@ -169,8 +169,8 @@ func (wpa *WpaCfg) ConnectNetwork(creds WpaCredentials) (WpaConnection, error) {
 	// regex for state
 	rState := regexp.MustCompile("(?m)wpa_state=(.*)\n")
 
-	// loop for status every second
-	for i := 0; i < 5; i++ {
+	// loop for status every second (max of 15 seconds)
+	for i := 0; i < 15; i++ {
 		wpa.Log.Info("WPA Checking wifi state")
 
 		stateOut, err := exec.Command("wpa_cli", "-i", "wlan0", "status").Output()
@@ -201,11 +201,14 @@ func (wpa *WpaCfg) ConnectNetwork(creds WpaCredentials) (WpaConnection, error) {
 			}
 		}
 
-		time.Sleep(3 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
+
+	// if password was wrong, we should remove the network so it doesnt get inadvertently added next time we save_config
 
 	connection.State = "FAIL"
 	connection.Message = "Unable to connection to " + creds.Ssid
+	wpa.Log.Info("WPA failed connecting to network: %s", creds.Ssid)
 	return connection, nil
 }
 
@@ -267,6 +270,16 @@ func (wpa *WpaCfg) ConfiguredNetworks() (map[string]WpaNetwork, error) {
 }
 
 func (wpa *WpaCfg) RemoveNetwork(networkId string) (string, error) {
+	// Disable the network
+	disableOut, err := exec.Command("wpa_cli", "-i", "wlan0", "disable_network", networkId).Output()
+	if err != nil {
+		wpa.Log.Fatal(err.Error())
+		return "", err
+	}
+	disableStatus := strings.TrimSpace(string(disableOut))
+	wpa.Log.Info("WPA disable got: %s", disableStatus)
+
+	// Remove the network
 	removeNetworkOut, err := exec.Command("wpa_cli", "-i", "wlan0", "remove_network", networkId).Output()
 	if err != nil {
 		wpa.Log.Fatal(err)
@@ -274,6 +287,8 @@ func (wpa *WpaCfg) RemoveNetwork(networkId string) (string, error) {
 
 	// will be either OK or FAIL
 	removeNetworkClean := strings.TrimSpace(string(removeNetworkOut))
+	wpa.Log.Info("WPA remove_network got: %s", removeNetworkClean)
+
 	err = nil
 	if removeNetworkClean == "OK" {
 		// save the config
@@ -283,8 +298,8 @@ func (wpa *WpaCfg) RemoveNetwork(networkId string) (string, error) {
 			return "", err
 		}
 
-		saveStatus := strings.TrimSpace(string(saveOut))
-		wpa.Log.Info("WPA save got: %s", saveStatus)
+		saveStatusClean := strings.TrimSpace(string(saveOut))
+		wpa.Log.Info("WPA save got: %s", saveStatusClean)
 	} else {
 		err = errors.New(removeNetworkClean)
 	}
