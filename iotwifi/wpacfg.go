@@ -130,6 +130,61 @@ rsn_pairwise=CCMP`
 func (wpa *WpaCfg) ConnectNetwork(creds WpaCredentials) (WpaConnection, error) {
 	connection := WpaConnection{}
 
+	// first remove all configured networks
+	networkListOut, err := exec.Command("wpa_cli", "-i", "wlan0", "list_networks").Output()
+	if err != nil {
+		wpa.Log.Fatal(err)
+		return connection, err
+	}
+
+	networkListOutArr := strings.Split(string(networkListOut), "\n")
+	for _, networkRecord := range networkListOutArr[1:] {
+		// network id / ssid / bssid / flags
+		// "network id / ssid / bssid / flags\n0\tAloha\tany\t[CURRENT]\n"
+		fields := strings.Split(networkRecord, "\t")
+		if len(fields) > 3 {
+			networkId := fields[0]
+			ssid := fields[1]
+
+			wpa.Log.Info("WPA connecting to network, removing network ssid: %s", ssid)
+
+			// Disable the network
+			disableOut, err := exec.Command("wpa_cli", "-i", "wlan0", "disable_network", networkId).Output()
+			if err != nil {
+				wpa.Log.Fatal(err.Error())
+				return connection, err
+			}
+			disableStatus := strings.TrimSpace(string(disableOut))
+			wpa.Log.Info("WPA disable got: %s", disableStatus)
+
+			// Remove the network
+			removeNetworkOut, err := exec.Command("wpa_cli", "-i", "wlan0", "remove_network", networkId).Output()
+			if err != nil {
+				wpa.Log.Fatal(err)
+			}
+
+			// will be either OK or FAIL
+			removeNetworkClean := strings.TrimSpace(string(removeNetworkOut))
+			wpa.Log.Info("WPA remove_network got: %s", removeNetworkClean)
+
+			err = nil
+			if removeNetworkClean == "OK" {
+				// save the config
+				saveOut, err := exec.Command("wpa_cli", "-i", "wlan0", "save_config").Output()
+				if err != nil {
+					wpa.Log.Fatal(err.Error())
+					return connection, err
+				}
+
+				saveStatusClean := strings.TrimSpace(string(saveOut))
+				wpa.Log.Info("WPA save got: %s", saveStatusClean)
+			} else {
+				err = errors.New(removeNetworkClean)
+				return connection, err
+			}
+		}
+	}
+
 	// 1. Add a network
 	addNetOut, err := exec.Command("wpa_cli", "-i", "wlan0", "add_network").Output()
 	if err != nil {
@@ -217,7 +272,7 @@ func (wpa *WpaCfg) ConnectNetwork(creds WpaCredentials) (WpaConnection, error) {
 	wpa.Log.Info("WPA remove_network got: %s", removeNetworkClean)
 
 	connection.State = "FAIL"
-	connection.Message = "Unable to connection to " + creds.Ssid
+	connection.Message = "Unable to connect to " + creds.Ssid
 	wpa.Log.Info("WPA failed connecting to network: %s", creds.Ssid)
 	return connection, nil
 }
